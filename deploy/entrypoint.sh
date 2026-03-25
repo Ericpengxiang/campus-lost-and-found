@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 set -e
 
 echo "=== Campus Lost & Found - Starting ==="
@@ -33,8 +33,8 @@ if Item.objects.count() == 0:
     result = subprocess.run(['python', 'seed_data.py'], capture_output=True, text=True)
     print(result.stdout[-500:] if result.stdout else 'Seed done')
 else:
-    print(f'Data already exists: {Item.objects.count()} items')
+    print('Data already exists: ' + str(Item.objects.count()) + ' items')
 " 2>/dev/null || true
 
 echo "=== Initialization complete, starting services ==="
-exec /usr/bin/supervisord -n -c /etc/supervisor/supervisord.conf
+exec /usr/bin/supervisord -n -c /etc/supervisor.d/app.ini

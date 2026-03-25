@@ -1,13 +1,6 @@
-# ── Stage 1: Build Vue frontend ──────────────────────────────────
-FROM node:20-alpine AS frontend-builder
-WORKDIR /app/frontend
-COPY frontend/package.json frontend/pnpm-lock.yaml ./
-RUN npm install -g pnpm && pnpm install --frozen-lockfile
-COPY frontend/ ./
-RUN pnpm build
-
-# ── Stage 2: Django backend + serve static frontend ──────────────
-FROM python:3.11-slim
+# Campus Lost & Found - Django + Vue3
+# Using Alpine for faster builds
+FROM python:3.11-alpine
 LABEL maintainer="xjt-campus-laf"
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -16,41 +9,49 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Install system deps
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc \
-    default-libmysqlclient-dev \
-    pkg-config \
+# Install system dependencies
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories && \
+    apk update && apk add --no-cache \
     nginx \
     supervisor \
-    && rm -rf /var/lib/apt/lists/*
+    bash \
+    jpeg-dev \
+    zlib-dev \
+    gcc \
+    musl-dev \
+    && rm -rf /var/cache/apk/*
 
-# Install Python deps
+# Install Python deps (using PyMySQL - no C extensions needed)
 COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
 
 # Copy Django project
-COPY . .
+COPY backend/ ./backend/
+COPY users/ ./users/
+COPY items/ ./items/
+COPY matches/ ./matches/
+COPY manage.py ./
+COPY seed_data.py ./
 
-# Copy built Vue frontend to Django static dir
-COPY --from=frontend-builder /app/frontend/dist /app/frontend_dist
+# Copy pre-built Vue frontend dist
+COPY frontend/dist /app/frontend_dist
 
-# Collect static files
-RUN mkdir -p /app/staticfiles /app/media && \
-    python manage.py collectstatic --noinput 2>/dev/null || true
+# Create directories
+RUN mkdir -p /app/staticfiles /app/media /var/log/supervisor /run/nginx /etc/supervisor.d
+
+# Collect Django static files
+RUN python manage.py collectstatic --noinput 2>/dev/null || true
 
 # Copy nginx config
-COPY deploy/nginx.conf /etc/nginx/sites-available/default
-RUN ln -sf /etc/nginx/sites-available/default /etc/nginx/sites-enabled/default && \
-    rm -f /etc/nginx/sites-enabled/default.bak 2>/dev/null || true
+COPY deploy/nginx.conf /etc/nginx/http.d/default.conf
 
 # Copy supervisor config
-COPY deploy/supervisord.conf /etc/supervisor/conf.d/app.conf
+COPY deploy/supervisord.conf /etc/supervisor.d/app.ini
 
-EXPOSE 80
-
-# Copy and set entrypoint
+# Copy entrypoint
 COPY deploy/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
+
+EXPOSE 80
 
 CMD ["/entrypoint.sh"]
